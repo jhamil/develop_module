@@ -1,0 +1,6 @@
+name = Views Node Statistics
+description = The module manage counter of search information.
+package = Development Drupal 7
+core = 7.x
+files[] = views_node_statistics.install
+files[] = views_node_statistics.module

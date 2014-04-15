@@ -1,0 +1,38 @@
+<?php
+
+/**
+ * Implements hook_menu().
+ */
+function views_node_statistics_menu() {
+  $items = array();
+  $items['admin/structure/views/node-statistics'] = array(
+    'title' => 'Node statistics',
+    'description' => 'Configuration for the node statistics.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('views_node_statistics_form'),
+    'access arguments' => array('Administer site configuration'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+/**
+ * Build form for statistics form
+ * Create and display the Views node statistics configuration settings form.
+ */
+function views_node_statistics_form($form, &$form_state) {
+  
+  $arr = views_get_all_views($reset = FALSE);
+  $options = array();
+  foreach ($arr as $key => $value) {
+    $options[$key] = $value->human_name;
+  }
+
+  $form['views_node_statistics'] = array(
+      '#type' => 'checkboxes',
+      '#default_value' => variable_get('views_node_statistics', FALSE),
+      '#options' => $options,
+  );
+  return system_settings_form($form);
+}
