@@ -14,6 +14,35 @@ function views_node_statistics_menu() {
     'type' => MENU_NORMAL_ITEM,
   );
 
+  // This provides a place for Field API to hang its own
+  // interface and has to be the same as what was defined
+  // in views_node_statistics_entity_info() above.
+  $items['admin/structure/report/manage'] = array(
+    'title' => 'report Entity Admin',
+    'description' => 'Manage Report Entities Structure',
+    'page callback' => 'report_admin_page',
+    'access arguments' => array('administer report entities'),
+  );
+
+  // The page to view our entities - needs to follow what
+  // is defined in report_uri and will use load_report to retrieve
+  // the necessary entity info.
+  $items['report/%report'] = array(
+    'title callback' => 'report_page_title',
+    'title arguments' => array(1),
+    'page callback' => 'report_page_view',
+    'page arguments' => array(1),
+    'access arguments' => array('view report entities'),
+    'type' => MENU_CALLBACK,
+  );
+
+  // This defines a place for us to add report entities
+  $items['report/add'] = array(
+    'title' => 'Add a Report Entity',
+    'page callback' => 'report_add',
+    'access arguments' => array('create report entities'),
+  );
+
   return $items;
 }
 
@@ -22,7 +51,6 @@ function views_node_statistics_menu() {
  * Create and display the Views node statistics configuration settings form.
  */
 function views_node_statistics_form($form, &$form_state) {
-  
   $arr = views_get_all_views($reset = FALSE);
   $options = array();
   foreach ($arr as $key => $value) {
@@ -35,4 +63,253 @@ function views_node_statistics_form($form, &$form_state) {
       '#options' => $options,
   );
   return system_settings_form($form);
+}
+
+/**
+ * Implements hook_entity_info().
+ */
+function views_node_statistics_entity_info() {
+  $report_info['report'] = array(
+    'label' => t('Report Entity'),
+    'controller class' => 'ReportController',
+    'base table' => 'report',
+    'uri callback' => 'report_uri',
+    'fieldable' => TRUE,
+    'entity keys' => array(
+      'id' => 'rid',
+    ),
+    'static cache' => TRUE,
+    'bundles' => array(
+      'report' => array(
+        'label' => 'Report',
+        // Information below is used by the Field UI - they "attach" themselves here and lets us
+        // do the standard field management that all the core entities enjoy.
+        'admin' => array(
+          'path' => 'admin/structure/report/manage',
+          'access arguments' => array('administer report entities'),
+        ),
+      ),
+    ),
+    // View modes allow entities to be displayed differently based on context. We simply have one option
+    'view modes' => array(
+      'full' => array(
+        'label' => t('Full'),
+        'custom settings' =>  FALSE,
+      ),
+    )
+  );
+
+  return $report_info;
+}
+
+/**
+ * Fetch a report object. Make sure that the wildcard you choose
+ * in the report entity definition fits the function name here.
+ *
+ * @param $rid
+ *   Integer specifying the report entity id.
+ * @param $reset
+ *   A boolean indicating that the internal cache should be reset.
+ * @return
+ *   A fully-loaded $report object or FALSE if it cannot be loaded.
+ *
+ * @see report_load_multiple()
+ */
+function report_load($rid = NULL, $reset = FALSE) {
+  $report_ids = (isset($rid) ? array($rid) : array());
+  $report = report_load_multiple($report_ids, $reset);
+  return $report ? reset($report) : FALSE;
+}
+
+/**
+ * Loads nultiple report entities based on certain conditions
+ */
+function report_load_multiple($report_ids = array(), $conditions = array(), $reset = FALSE) {
+  return entity_load('report', $report_ids, $conditions, $reset);
+}
+
+/**
+ * Implementing the uri callback defined
+ */
+function report_uri($report) {
+  return array(
+    'path' => 'report/' . $report->rid,
+  );
+}
+
+/**
+ * Implements hook_permission()
+ */
+function views_node_statistics_permission() {
+    return array(
+    'administer report entities' =>  array(
+      'title' => t('Administer report entities'),
+      'restrict access' => TRUE,
+    ),
+    'view report entities' => array(
+      'title' => t('View Report Entities'),
+    ),
+    'create report entities' => array(
+      'title' => t('Create Report Entities'),
+    ),
+
+  );
+}
+
+
+/**
+ * Just provide some report info for the entity administration page.
+ * This can be expanded to add more information / a list of all created entites.
+ */
+function report_admin_page() {
+  $output = 'Welcome to the administration page for your Report Entities';
+  $output.= l(t('Add entity'), 'report/add');
+
+  return $output;
+}
+
+/**
+ * Callback for title
+ */
+function report_page_title($report) {
+  return $report->name;
+}
+
+/**
+ * Callback for displaying the entity
+ */
+function report_page_view($report, $view_mode = 'full') {
+
+  $report->content = array();
+
+  // Build fields content - this where the FieldAPI really comes in to play. The task
+  // is relatively trivial for us - it all gets taken care of by Drupal core.
+  field_attach_prepare_view('report', array($report->rid => $report), $view_mode);
+  entity_prepare_view('report', array($report->rid => $report));
+  $report->content += field_attach_view('report', $report, $view_mode);
+  drupal_set_title($report->name);
+  return $report->content;
+}
+
+
+
+/**
+ * Implemnts hook_field_extra_fields()
+ *
+ * This exposes the other column of our entity (i.e. name) as a pseudo-field
+ * so that it gets handled by the Entity and Field core functionality.
+ * Node titles get treated in a similar manner.
+ */
+function views_node_statistics_field_extra_fields() {
+  $return = array();
+  $return['report']['name'] = array(
+    'form' => array(
+      'name' => array(
+        'label' => t('name'),
+        'description' => t('Report Entity Name'),
+      ),
+    ),
+  );
+
+  return $return;
+}
+
+
+/**
+ * Creates a report entity for us - simply intializing the main variables and
+ * sending us to a form to add in the rest.
+ */
+function report_add() {
+  $report = (object) array(
+    'rid' => '',
+    'type' => 'report',
+  );
+
+  return drupal_get_form('report_add_form', $report);
+}
+
+
+/**
+ * Form callback: allows us to create a report entity.
+ *
+ * As you can see below the pattern followed is:
+ * 1. Set up the form for the data that is specific to your
+ * entity - typically the columns of your bas table.
+ * 2. Call on the Field API to pull in the form elements
+ * for fields attached to the entity.
+ */
+function report_add_form($form, &$form_state, $report) {
+  $form['name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Name'),
+    '#required' => TRUE,
+  );
+
+  field_attach_form('report', $report, $form, $form_state);
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save'),
+    '#weight' => 100,
+  );
+
+  return $form;
+}
+
+
+/**
+ * Form callback: Validates report_add_form form.
+ * We pass things straight through to the Field API to handle validation
+ * of the attached fields.
+ */
+function report_add_form_validate($form, &$form_state) {
+  $report_submission = (object) $form_state['values'];
+  field_attach_form_validate('report', $report_submission, $form, $form_state);
+}
+
+
+/**
+ * Form callback: submits report_add_form information
+ */
+function report_add_form_submit($form, &$form_state) {
+  $report_submission = (object) $form_state['values'];
+  field_attach_submit('report', $report_submission, $form, $form_state);
+  $report = report_save($report_submission);
+  $form_state['redirect'] = 'report/' . $report->rid;
+}
+
+
+/**
+ * We save the report entity by calling the controller.
+ */
+function report_save(&$report) {
+  return entity_get_controller('report')->save($report);
+}
+
+
+/**
+ * ReportController extends the DrupalDefaultEntityController by adding
+ * an extra function to handle saving of entities.
+ */
+class ReportController extends DrupalDefaultEntityController{
+
+ /**
+  * Saves the report entity mathching custom fields via drupal_write_record()
+  */
+ public function save($report) {
+    drupal_write_record('report', $report);
+    field_attach_insert('report', $report);
+    module_invoke_all('entity_insert', 'report', $report);
+    return $report;
+  }
+}
+
+/**
+ * Implements hook_help().
+ */
+function views_node_statistics_help($path, $arg) {
+  switch ($path) {
+    case 'admin/help#views_node_statistics':
+      return "<p>" . t('Once you have activated the module you can configure your entity bundle by visiting "admin/structure/report/manage"') . "</p>";
+  }
 }
