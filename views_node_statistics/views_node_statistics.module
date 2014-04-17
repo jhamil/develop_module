@@ -1,84 +1,118 @@
 <?php
 
 /**
- * Implements hook_menu().
- */
+  * Implements hook_menu().
+  */
 function views_node_statistics_menu() {
-  $items = array();
-  $items['admin/structure/views/node-statistics'] = array(
-    'title' => 'Node statistics',
-    'description' => 'Configuration for the node statistics.',
-    'page callback' => 'drupal_get_form',
-    'page arguments' => array('views_node_statistics_form'),
-    'access arguments' => array('administer views'),
-    'weight' => 50,
-    'type' => MENU_LOCAL_TASK
-  );
+    $items = array();
+    $items['admin/structure/views/node-statistics'] = array(
+        'title' => 'Node statistics',
+        'description' => 'Configuration for the node statistics.',
+        'page callback' => 'drupal_get_form',
+        'page arguments' => array('views_node_statistics_form'),
+        'access arguments' => array('administer views'),
+        'weight' => 50,
+        'type' => MENU_LOCAL_TASK
+    );
 
-  return $items;
+    return $items;
 }
 
 /**
- * Build form for statistics form
- * Create and display the Views node statistics configuration settings form.
- */
+  * Build form for statistics form
+  * Create and display the Views node statistics configuration settings form.
+  */
 function views_node_statistics_form($form, &$form_state) {
-  $views = views_get_all_views();
-  $options = array();
+    $views = views_get_all_views();
+    $options = array();
 
-  foreach ($views as $key => $value) {
-    if (is_null($value->disabled)) {
-      $options[$key] = $value->human_name;
+    foreach ($views as $key => $value) {
+        if (is_null($value->disabled)) {
+            $options[$key] = $value->human_name;
+        }
     }
-  }
 
-  $form['views_node_statistics'] = array(
-      '#type' => 'checkboxes',
-      '#default_value' => variable_get('views_node_statistics', array()),
-      '#options' => $options,
-      '#description' => 'Select the views that you want to track'
-  );
+    $form['views_node_statistics'] = array(
+            '#type' => 'checkboxes',
+            '#default_value' => variable_get('views_node_statistics', array()),
+            '#options' => $options,
+            '#description' => 'Select the views that you want to track'
+    );
 
-  return system_settings_form($form);
+    return system_settings_form($form);
 }
 
 /**
- * Implements hook_views_pre_render().
- */
+  * Implements hook_views_pre_render().
+  */
 function views_node_statistics_views_pre_render(&$view) {
-  $query = $view->build_info['query'];
-  if (is_numeric($view->total_rows)) {
-    $query->range(0, $view->total_rows);
-  }
-  $result = $query->execute();
-  $nids = array();
-  foreach ($result as $row) {
-    $nids[] = $row->nid;
-  }
-
-  views_node_statistics_count_results($nids);
+    $query = $view->build_info['query'];
+    if (is_numeric($view->total_rows)) {
+        $query->range(0, $view->total_rows);
+    }
+    $result = $query->execute();
+    $nids = array();
+    foreach ($result as $row) {
+        $nids[] = $row->nid;
+    }
+    
+    views_node_statistics_count_results($nids);
 }
 
 function views_node_statistics_count_results($nids) {
   $results = variable_get('results', array());
-
   foreach ($nids as $nid) {
     if (!isset($results[$nid])) {
-      $results[$nid] = 0;
+        $results[$nid] = 0;
     }
     $results[$nid] = $results[$nid] + 1;
+
+    $res = exists_in_report($node, 'field_report_results', 30);
   }
 
   dsm($results);
-
   variable_set('results', $results);
 
-  views_node_statistics_update_entity($results, 'nombre_vista');
+  $node = node_load(1);
+  views_node_statistics_update_field_collection ($node, 'field_report_results', array ('field_report_results_count' => '100'));
+
+  //views_node_statistics_create_entity(3, 555);
 }
 
-function views_node_statistics_update_entity($results, $view_name) {
-  $result = new StdClass();
-  $result->type = 'report';
+function views_node_statistics_update_field_collection($node, $collection, $fields = Array(), $index = 0) {
+  if ($node && $collection && !empty($fields)) {
+    // Get the field collection ID
+    $eid = $node->{$collection}[LANGUAGE_NONE][$index]['value'];
+    // Load the field collection with the ID from above
+    $entity = entity_load_single('field_collection_item', array($eid));
+    // Wrap the loaded field collection which makes setting/getting much easier
+    $node_wrapper = entity_metadata_wrapper('field_collection_item', $entity);
 
-  entity_save('report', $result);
+    // Loop through our fields and set the values
+    foreach ($fields as $field => $data) {
+      $node_wrapper->{$field}->set($data);
+    }
+    $node_wrapper->save(true);
+  }
+}
+
+function views_node_statistics_create_entity($nid, $count) {
+    $nload = node_load(1);
+    $node_reference = node_load($nid);
+    $field_collection_item = entity_create('field_collection_item', array('field_name' => 'field_report_results'));
+    $field_collection_item->field_report_results_count['und'][0]['value'] = $count;
+    $field_collection_item->setHostEntity('node', $nload);
+    $field_collection_item->save();
+}
+
+function exists_in_report($node, $field_collection, $index) {
+  //array of field collection of a node
+  $collections = $node->{$field_collection}[LANGUAGE_NONE];
+  foreach ($collections as $key => $value) {
+    if($key == $index) {
+      return true;
+    }
+  }
+
+  return false;
 }
